@@ -13,32 +13,8 @@ from torch import nn
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
 
+
 # eldata = pd.read_parquet(DATA_DIR.joinpath("LD2011_2014.parquet"))
-
-DATA_DIR = pathlib.Path("../data")
-assert os.path.isdir(DATA_DIR)
-# data_path = "data/AEP_hourly.csv.zip" # wtf
-data_path = os.path.join(DATA_DIR, "LD2011_2014.txt")
-assert os.path.isfile(data_path)
-
-eldata = pd.read_csv(data_path,
-                 parse_dates=[0],
-                 delimiter=";",
-                 decimal=",")
-eldata.rename({"Unnamed: 0": "timestamp"}, axis=1, inplace=True)
-
-
-print(eldata.head())
-
-eldata = eldata.resample("1H", on="timestamp").mean()
-
-(eldata != 0).mean().plot()
-plt.ylabel("non-zero %")
-
-eldata[eldata != 0].median().sort_values(ascending=False).plot(rot=90)
-plt.yscale("log")
-
-plt.ylabel("magnitude")
 
 
 class ElectricityLoadDataset(Dataset):
@@ -103,16 +79,6 @@ class ElectricityLoadDataset(Dataset):
                 torch.Tensor(fct_data.values))
 
 
-ds = ElectricityLoadDataset(eldata, 100)
-
-hist, fct = ds[4]
-
-print(f"hist.shape: {hist.shape}")
-print(f"fct.shape: {fct.shape}")
-
-ds.samples.groupby("household").size().unique()
-
-
 class ElectricityLoadDataModule(pl.LightningDataModule):
     """DataModule for electricity data."""
 
@@ -172,19 +138,6 @@ class ElectricityLoadDataModule(pl.LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.workers)
-
-
-dm = ElectricityLoadDataModule(eldata)
-dm.setup()
-
-assert dm.train_hh.intersection(dm.val_hh).empty
-assert dm.train_hh.intersection(dm.test_hh).empty
-assert dm.train_hh.size + dm.val_hh.size + dm.test_hh.size == 370
-
-
-x, y = next(iter(dm.train_dataloader()))
-
-print(f"x.shape: {x.shape}, y.shape: {y.shape}")
 
 
 class ElectricityLoadModel(pl.LightningModule):
@@ -293,26 +246,72 @@ class ElectricityLoadModel(pl.LightningModule):
         return -torch.mean(L)
 
 
-scaled_data = eldata / eldata[eldata != 0].mean() - 1
+def main():
+    DATA_DIR = pathlib.Path("../data")
+    assert os.path.isdir(DATA_DIR)
+    # data_path = "data/AEP_hourly.csv.zip" # wtf
+    data_path = os.path.join(DATA_DIR, "LD2011_2014.txt")
+    assert os.path.isfile(data_path)
 
-dm = ElectricityLoadDataModule(scaled_data, batch_size=128)
-model = ElectricityLoadModel(lr=1e-3, hidden_units=64, num_layers=1)
-trainer = pl.Trainer(max_epochs=5, progress_bar_refresh_rate=1, gpus=1)
-trainer.fit(model, dm)
+    eldata = pd.read_csv(data_path,
+                         parse_dates=[0],
+                         delimiter=";",
+                         decimal=",")
+    eldata.rename({"Unnamed: 0": "timestamp"}, axis=1, inplace=True)
+
+    print(eldata.head())
+
+    eldata = eldata.resample("1H", on="timestamp").mean()
+
+    (eldata != 0).mean().plot()
+    plt.ylabel("non-zero %")
+
+    eldata[eldata != 0].median().sort_values(ascending=False).plot(rot=90)
+    plt.yscale("log")
+
+    plt.ylabel("magnitude")
+
+    ds = ElectricityLoadDataset(eldata, 100)
+
+    hist, fct = ds[4]
+
+    print(f"hist.shape: {hist.shape}")
+    print(f"fct.shape: {fct.shape}")
+
+    ds.samples.groupby("household").size().unique()
+
+    dm = ElectricityLoadDataModule(eldata)
+    dm.setup()
+
+    assert dm.train_hh.intersection(dm.val_hh).empty
+    assert dm.train_hh.intersection(dm.test_hh).empty
+    assert dm.train_hh.size + dm.val_hh.size + dm.test_hh.size == 370
+
+    x, y = next(iter(dm.train_dataloader()))
+
+    print(f"x.shape: {x.shape}, y.shape: {y.shape}")
+
+    scaled_data = eldata / eldata[eldata != 0].mean() - 1
+
+    dm = ElectricityLoadDataModule(scaled_data, batch_size=128)
+    model = ElectricityLoadModel(lr=1e-3, hidden_units=64, num_layers=1)
+    trainer = pl.Trainer(max_epochs=5, progress_bar_refresh_rate=1, gpus=1)
+    trainer.fit(model, dm)
+
+    # Example forecasts
+    dm.setup(stage="test")
+
+    batch = next(iter(dm.test_dataloader()))
+
+    X, y = batch
+
+    result = model.sample(X, 100)
+
+    print(f"result.shape: {result.shape}")
+
+    plt.plot(result.mean(dim=-1).numpy()[:, 8])
+    plt.plot(y[8, :, 0])
 
 
-# Example forecasts
-dm.setup(stage="test")
-
-batch = next(iter(dm.test_dataloader()))
-
-X, y = batch
-
-result = model.sample(X, 100)
-
-print(f"result.shape: {result.shape}")
-
-plt.plot(result.mean(dim=-1).numpy()[:, 8])
-plt.plot(y[8, :, 0])
-
-
+if __name__ == "__main__":
+    main()
