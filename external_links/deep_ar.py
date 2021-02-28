@@ -1,18 +1,18 @@
 import matplotlib.pyplot as plt
-
-plt.style.use("bmh")
-plt.rcParams["figure.figsize"] = (6, 6)
-
-import pathlib
 import pandas as pd
 import numpy as np
 import os
 import torch
-import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
 
+from utills import DATA_DIR, download_dataset
+
+
+def set_pyplot_style():
+    plt.style.use("bmh")
+    plt.rcParams["figure.figsize"] = (6, 6)
 
 # eldata = pd.read_parquet(DATA_DIR.joinpath("LD2011_2014.parquet"))
 
@@ -247,10 +247,13 @@ class ElectricityLoadModel(pl.LightningModule):
 
 
 def main():
-    DATA_DIR = pathlib.Path("../data")
-    assert os.path.isdir(DATA_DIR)
-    # data_path = "data/AEP_hourly.csv.zip" # wtf
+
     data_path = os.path.join(DATA_DIR, "LD2011_2014.txt")
+
+    if not os.path.isfile(data_path):
+        download_dataset()
+
+    assert os.path.isdir(DATA_DIR)
     assert os.path.isfile(data_path)
 
     eldata = pd.read_csv(data_path,
@@ -314,4 +317,5 @@ def main():
 
 
 if __name__ == "__main__":
+    set_pyplot_style()
     main()
