@@ -5,6 +5,7 @@ if __name__ == "__main__":
 import numpy as np
 import pandas as pd
 import torch
+from torch.utils.data import Dataset
 
 
 df = pd.read_csv("LD2011_2014.txt",
@@ -12,8 +13,6 @@ df = pd.read_csv("LD2011_2014.txt",
                  delimiter=";",
                  decimal=",")
 df.rename({"Unnamed: 0": "timestamp"}, axis=1, inplace=True)
-
-from torch.utils.data import Dataset
 
 
 class ElDataset(Dataset):
