@@ -1,89 +1,50 @@
-import matplotlib as plt
-
-
-plt.style.use("bmh")
-plt.rcParams["figure.figsize"] = (12, 4)
-
-# %%
-
+import matplotlib.pyplot as plt
 import pathlib
-
-# %%
-
 import numpy as np
 import pandas as pd
 
-# %%
-
-DATA_DIR = pathlib.Path("data")
-
-# %% md
-
-# Loading data
-
-# %%
-
-df = pd.read_csv("data/AEP_hourly.csv.zip", parse_dates=["Datetime"], index_col="Datetime")
-
-
-# Fix timestamps
-
-df.index.is_monotonic, df.index.is_unique
-
-# %%
-
-df = df.sort_index()
-df
-
-# %% md
-
-### New index
-
-# %%
-
-new_idx = pd.date_range("2004-10-01 01:00:00", "2018-08-03 00:00:00", freq="1H")
-
-# %%
-
-df[~df.index.duplicated(keep='first')]
-
-# %%
-
-dfi = df[~df.index.duplicated(keep='first')].reindex(new_idx)
-
-# %%
-
-dfi.index.is_monotonic, dfi.index.is_unique, dfi.index.freq
-
-# %% md
-
-### Missing values
-
-# %%
-
-dfi.isnull().mean()
-
-# %%
-
-dfi.ffill(inplace=True)
-
-# %% md
-
-# DalaModule
-
-# %%
-
-# PyTorch imports
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader, Dataset
-
-# PyTorch Lightning imports
 import pytorch_lightning as pl
+import os
 
+plt.style.use("bmh")
+plt.rcParams["figure.figsize"] = (12, 4)
 
-# %%
+DATA_DIR = pathlib.Path("../data")
+assert os.path.isdir(DATA_DIR)
+# data_path = "data/AEP_hourly.csv.zip" # wtf
+data_path = os.path.join(DATA_DIR, "LD2011_2014.txt")
+assert os.path.isfile(data_path)
+
+df = pd.read_csv(data_path,
+                 parse_dates=[0],
+                 delimiter=";",
+                 decimal=",")
+df.rename({"Unnamed: 0": "Datetime"}, axis=1, inplace=True)
+
+# df = pd.read_csv(data_path, parse_dates=["Datetime"], index_col="Datetime") # wtf
+
+is_monotonic, is_unique = df.index.is_monotonic, df.index.is_unique
+print(f"is_monotonic: {is_monotonic}, is_unique: {is_unique}")
+
+df = df.sort_index()
+
+new_idx = pd.date_range("2004-10-01 01:00:00", "2018-08-03 00:00:00", freq="1H")
+
+print(df[~df.index.duplicated(keep='first')])
+
+dfi = df[~df.index.duplicated(keep='first')].reindex(new_idx)
+
+i_is_monotonic, i_is_unique, i_freq = dfi.index.is_monotonic, dfi.index.is_unique, dfi.index.freq
+print(f"i_is_monotonic: {i_is_monotonic}, i_is_unique: {i_is_unique}, i_freq: {i_freq}")
+
+# Missing values
+print(f"dfi.isnull().mean(): {dfi.isnull().mean()}")
+dfi.ffill(inplace=True)
+
 
 class ElectricityDataset(Dataset):
     """Dataset which samples the data from hourly electricity data."""
@@ -129,33 +90,24 @@ class ElectricityDataset(Dataset):
                 torch.Tensor(fct_data[self.col].values))
 
 
-# %%
-
-ds = ElectricityDataset(dfi, 10)
-
-# %%
+ds = ElectricityDataset(df=dfi, samples=10)
 
 start_ts = ds.sample_idx[4]
 
-# %%
+print("dfi[start_ts:].head()")
+print(dfi[start_ts:].head())
 
-dfi[start_ts:].head()
+print("dfi[start_ts + pd.Timedelta(days=7):].head()")
+print(dfi[start_ts + pd.Timedelta(days=7):].head())
 
-# %%
+print(f"ds[4]: {ds[4]}")
 
-dfi[start_ts + pd.Timedelta(days=7):].head()
-
-# %%
-
-ds[4]
-
-
-# %%
 
 class ElectricityDataModule(pl.LightningDataModule):
     """DataModule for electricity data."""
 
-    def __init__(self, df,
+    def __init__(self,
+                 df,
                  train_range=("2004", "2015"),
                  val_range=("2016", "2017"),
                  test_range=("2018", None),
@@ -197,12 +149,6 @@ class ElectricityDataModule(pl.LightningDataModule):
         return DataLoader(self.test_ds, batch_size=self.batch_size, num_workers=self.workers)
 
 
-# %% md
-
-# Encoder network
-
-# %%
-
 class ElectricityEncoder(pl.LightningModule):
     """Encoder network for encoder-decoder forecast model."""
 
@@ -224,11 +170,7 @@ class ElectricityEncoder(pl.LightningModule):
         return output, henc, cenc
 
 
-# %%
-
 encoder = ElectricityEncoder()
-
-# %%
 
 hist_sample = torch.cat([ds[3][0].unsqueeze(0),
                          ds[5][0].unsqueeze(0)])
@@ -238,31 +180,14 @@ fct_sample = torch.cat([ds[3][1].unsqueeze(0),
 
 output, hc, cc = encoder(hist_sample)
 
-# %%
+print(f"hist_sample.shape: {hist_sample.shape}")
+print(f"hc.shape: {hc.shape}")
+print(f"output.shape: {output.shape}")
+print(f"cc.shape: {cc.shape}")
 
-hist_sample.shape
-
-# %%
-
-hc.shape
-
-# %%
-
-output.shape
-
-# %%
-
-cc.shape
-
-
-# %% md
-
-# Decoder network
-
-# %%
 
 class ElectricityDecoder(pl.LightningModule):
-    """Encoder network for encoder-decoder forecast model."""
+    """Decoder network for encoder-decoder forecast model."""
 
     def __init__(self, hist_len=168, fct_len=24, num_layers=1, hidden_units=8):
         super().__init__()
@@ -283,31 +208,15 @@ class ElectricityDecoder(pl.LightningModule):
         return output, hc, cc
 
 
-# %%
-
 decoder = ElectricityDecoder()
-
-# %%
-
 a, b, c = decoder(hist_sample[:, [-1]], (hc, cc))
-
-# %%
-
 decoder(a, (b, c))
 
-# %%
+print(f"a.shape: {a.shape}")
 
-a.shape
-
-
-# %% md
-
-# Encoder-decoder model
-
-# %%
 
 class ElectricityModel(pl.LightningModule):
-    """Encoder network for encoder-decoder forecast model."""
+    """Encoder Decoder network for encoder-decoder forecast model."""
 
     def __init__(self, hist_len=168, fct_len=24, num_layers=1, hidden_units=8, lr=1e-3):
         super().__init__()
@@ -348,20 +257,11 @@ class ElectricityModel(pl.LightningModule):
         return optimizer
 
 
-# %% md
-
 # Scaling
-
-# %%
-
 plt.figure(figsize=(6, 6))
 dfi.plot(kind="hist", ax=plt.gca())
 
-# %%
-
-LIMH, LIML = 26e3, 9e3
-
-# %%
+LIMH, LIML = 26e3, 9e3  # dah fuck
 
 plt.figure(figsize=(6, 6))
 ((2 * dfi - LIML - LIMH) / (LIMH - LIML)).plot(kind="hist", ax=plt.gca())
@@ -375,11 +275,9 @@ model = ElectricityModel(lr=1e-3, hidden_units=64)
 trainer = pl.Trainer(max_epochs=20, progress_bar_refresh_rate=1, gpus=1)
 trainer.fit(model, ds)
 
-# %%
 
 hist_sample_scaled = (2 * hist_sample - LIML - LIMH) / (LIMH - LIML)
 
-# %%
 
 plt.plot(((2 * hist_sample.numpy() - LIML - LIMH) / (LIMH - LIML))[0], label="historical data")
 plt.plot(np.arange(168, 192, 1), model(hist_sample_scaled).detach().numpy()[0], label="forecast")
@@ -388,8 +286,6 @@ plt.plot(np.arange(168, 192, 1), ((2 * fct_sample.numpy() - LIML - LIMH) / (LIMH
 plt.legend(loc=0)
 plt.tight_layout()
 
-# %%
-
 plt.plot(((2 * hist_sample.numpy() - LIML - LIMH) / (LIMH - LIML))[1], label="historical data")
 plt.plot(np.arange(168, 192, 1), model(hist_sample_scaled).detach().numpy()[1], label="forecast")
 plt.plot(np.arange(168, 192, 1), ((2 * fct_sample.numpy() - LIML - LIMH) / (LIMH - LIML))[1], label="actual")
@@ -397,39 +293,34 @@ plt.plot(np.arange(168, 192, 1), ((2 * fct_sample.numpy() - LIML - LIMH) / (LIMH
 plt.legend(loc=0)
 plt.tight_layout()
 
-# %%
-
 dl = ds.test_dataloader()
 
-# %%
-
-xx = x[0]
-
-# %%
-
-xx.cuda()
-
-# %%
-
-for x in dl:
-    fct = model(x[0].cuda())
-    break
-
-# %%
-
-fct = fct.detach().cpu().numpy()
-
-# %%
-
-for stream in range(32):
-    plt.figure(figsize=(12, 3))
-    plt.plot((x[0][stream] * (LIMH - LIML) + (LIMH + LIML)) / 2, label="historical data")
-    plt.plot(np.arange(168, 192, 1), (x[1][stream] * (LIMH - LIML) + (LIMH + LIML)) / 2, label="actual")
-    plt.plot(np.arange(168, 192, 1), (fct[stream] * (LIMH - LIML) + (LIMH + LIML)) / 2, label="forecast")
-    plt.legend(loc=0)
-    plt.tight_layout()
-    plt.show()
-
-# %%
-
-
+# xx = x[0]
+#
+# # %%
+#
+# xx.cuda()
+#
+# # %%
+#
+# for x in dl:
+#     #
+#     fct = model(x[0].cuda())
+#     break
+#
+# # %%
+#
+# fct = fct.detach().cpu().numpy()
+#
+# # %%
+#
+# for stream in range(32):
+#     plt.figure(figsize=(12, 3))
+#     plt.plot((x[0][stream] * (LIMH - LIML) + (LIMH + LIML)) / 2, label="historical data")
+#     plt.plot(np.arange(168, 192, 1), (x[1][stream] * (LIMH - LIML) + (LIMH + LIML)) / 2, label="actual")
+#     plt.plot(np.arange(168, 192, 1), (fct[stream] * (LIMH - LIML) + (LIMH + LIML)) / 2, label="forecast")
+#     plt.legend(loc=0)
+#     plt.tight_layout()
+#     plt.show()
+#
+# # %%
