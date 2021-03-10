@@ -20,11 +20,11 @@ def set_pyplot_style():
 class ElectricityLoadDataset(Dataset):
     """Sample data from electricity load dataset (per household, resampled to one hour)."""
 
-    def __init__(self, df, samples, hist_len=168, fct_len=24):
-        self.hist_num = hist_len
-        self.fct_num = fct_len
-        self.hist_len = pd.Timedelta(hours=hist_len)
-        self.fct_len = pd.Timedelta(hours=fct_len)
+    def __init__(self, df, samples, hist_num=168, fct_num=24):
+        self.hist_num = hist_num
+        self.fct_num = fct_num
+        self.hist_len = pd.Timedelta(hours=hist_num)
+        self.fct_len = pd.Timedelta(hours=fct_num)
         self.offset = pd.Timedelta(hours=1)
         self.samples = samples
 
@@ -43,8 +43,8 @@ class ElectricityLoadDataset(Dataset):
 
         households = []
 
-        for hh in self.raw_data.columns:
-            hh_start = self.clean_start_ts[hh]
+        for household in self.raw_data.columns:
+            hh_start = self.clean_start_ts[household]
             hh_nsamples = min(self.samples, self.raw_data.loc[hh_start:self.max_ts].shape[0])
 
             hh_samples = (self.raw_data
@@ -53,7 +53,7 @@ class ElectricityLoadDataset(Dataset):
                           .to_series()
                           .sample(hh_nsamples, replace=False)
                           .index)
-            households.extend([(hh, start_ts) for start_ts in hh_samples])
+            households.extend([(household, start_ts) for start_ts in hh_samples])
 
         self.samples = pd.DataFrame(households, columns=("household", "start_ts"))
 
@@ -261,39 +261,39 @@ def main():
                          delimiter=";",
                          decimal=",")
     eldata.rename({"Unnamed: 0": "timestamp"}, axis=1, inplace=True)
-
-    print(eldata.head())
-
+    #
+    # print(eldata.head())
+    #
     eldata = eldata.resample("1H", on="timestamp").mean()
-
-    (eldata != 0).mean().plot()
-    plt.ylabel("non-zero %")
-
+    #
+    # (eldata != 0).mean().plot()
+    # plt.ylabel("non-zero %")
+    #
     eldata[eldata != 0].median().sort_values(ascending=False).plot(rot=90)
-    plt.yscale("log")
-
-    plt.ylabel("magnitude")
-
-    ds = ElectricityLoadDataset(eldata, 100)
-
-    hist, fct = ds[4]
-
-    print(f"hist.shape: {hist.shape}")
-    print(f"fct.shape: {fct.shape}")
-
-    ds.samples.groupby("household").size().unique()
-
-    dm = ElectricityLoadDataModule(eldata)
-    dm.setup()
-
-    assert dm.train_hh.intersection(dm.val_hh).empty
-    assert dm.train_hh.intersection(dm.test_hh).empty
-    assert dm.train_hh.size + dm.val_hh.size + dm.test_hh.size == 370
-
-    x, y = next(iter(dm.train_dataloader()))
-
-    print(f"x.shape: {x.shape}, y.shape: {y.shape}")
-
+    # plt.yscale("log")
+    #
+    # plt.ylabel("magnitude")
+    #
+    # dataset = ElectricityLoadDataset(eldata, 100)
+    #
+    # hist, fct = dataset[4]
+    #
+    # print(f"hist.shape: {hist.shape}")
+    # print(f"fct.shape: {fct.shape}")
+    #
+    # dataset.samples.groupby("household").size().unique()
+    #
+    # dm = ElectricityLoadDataModule(eldata)
+    # dm.setup()
+    #
+    # assert dm.train_hh.intersection(dm.val_hh).empty
+    # assert dm.train_hh.intersection(dm.test_hh).empty
+    # assert dm.train_hh.size + dm.val_hh.size + dm.test_hh.size == 370
+    #
+    # x, y = next(iter(dm.train_dataloader()))
+    #
+    # print(f"x.shape: {x.shape}, y.shape: {y.shape}")
+    #
     scaled_data = eldata / eldata[eldata != 0].mean() - 1
 
     dm = ElectricityLoadDataModule(scaled_data, batch_size=128)
