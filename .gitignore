@@ -2,3 +2,5 @@
 /venv/
 /data/*
 /external_links/lightning_logs/*
+*.pyc
+/pipelines/lightning_logs/*
